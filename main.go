@@ -1,17 +1,27 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
 	"go.test/config"
 	"go.test/handler"
 	"go.test/middleware"
 	"go.test/repository"
 	"go.test/usecase"
 
+	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
+	if env := godotenv.Load(); env != nil {
+		fmt.Println(".env only for env local")
+	}
+
 	e := echo.New()
 	e.Use(echoMiddleware.Logger())
 	e.Use(echoMiddleware.Recover())
@@ -26,25 +36,32 @@ func main() {
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	userHandler := handler.NewUserHandler(userUsecase)
 
-	e.POST("/register", userHandler.RegisterUser)
-	e.POST("/login", userHandler.LoginUser)
+	e.POST("/api/register", userHandler.RegisterUser)
+	e.POST("/api/login", userHandler.LoginUser)
 
-	// JWT protected routes
-	r := e.Group("/restricted")
-	r.Use(middleware.JWTMiddleware)
+	restricted := e.Group("/api")
+	restricted.Use(middleware.JWTMiddleware)
 
-	// Book routes
-	r.GET("/books", bookHandler.GetBooks)
-	r.GET("/books/:id", bookHandler.GetBook)
-	r.POST("/books", bookHandler.CreateBook, middleware.RBAC("admin"))
-	r.PUT("/books/:id", bookHandler.UpdateBook, middleware.RBAC("admin"))
-	r.DELETE("/books/:id", bookHandler.DeleteBook, middleware.RBAC("admin"))
+	restricted.GET("/books", bookHandler.GetBooks)
+	restricted.GET("/books/:id", bookHandler.GetBook)
+	restricted.POST("/books", middleware.RoleBasedAccess(bookHandler.CreateBook, "supervisor"))
+	restricted.PUT("/books/:id", middleware.RoleBasedAccess(bookHandler.UpdateBook, "supervisor"))
+	restricted.DELETE("/books/:id", middleware.RoleBasedAccess(bookHandler.DeleteBook, "manager"))
 
-	// User routes
-	r.GET("/users", userHandler.GetUsers, middleware.RBAC("admin"))
-	r.GET("/users/:id", userHandler.GetUser, middleware.RBAC("admin"))
-	r.PUT("/users/:id", userHandler.UpdateUser, middleware.RBAC("admin"))
-	r.DELETE("/users/:id", userHandler.DeleteUser, middleware.RBAC("admin"))
+	restricted.GET("/users", userHandler.GetUsers)
+	restricted.GET("/users/:id", userHandler.GetUser)
+	restricted.PUT("/users/:id", middleware.RoleBasedAccess(userHandler.UpdateUser, "supervisor"))
+	restricted.DELETE("/users/:id", middleware.RoleBasedAccess(userHandler.DeleteUser, "manager"))
 
-	e.Logger.Fatal(e.Start(":1323"))
+	// Start server
+	port := os.Getenv("SERVICE_PORT")
+	if port == "" {
+		port = "1323"
+	}
+	s := &http.Server{
+		Addr:         ":" + port,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	e.Logger.Fatal(e.StartServer(s))
 }

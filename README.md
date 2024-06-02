@@ -1,35 +1,32 @@
-# Take-Home Test: Senior Go Developer
-Welcome to our Senior Go Developer take-home test! This test aims to assess your skills and experience with Go programming and related technologies. Please complete the following tasks and submit your solutions within the given timeframe.
+# Books Management Application
 
-## Task 1: Web Service Development
-Develop a RESTful API service using Go that allows users to manage a collection of books. The service should support the following operations:
+This is a Go-based RESTful API service for managing a collection of books, containerized using Docker.
 
-1. GET /books: Retrieve a list of all books.
-2. GET /books/{id}: Retrieve a specific book by its ID.
-3. POST /books: Create a new book.
-4. PUT /books/{id}: Update an existing book.
-5. DELETE /books/{id}: Delete a book by its ID.
+## Prerequisites
 
-Each book should have at least the following fields: ID, Title, Author, ISBN, and PublishedDate.
+- Docker installed on your machine.
 
-## Task 2: Authentication Middleware
-Implement middleware for authentication and authorization in the API service. The middleware should require users to authenticate with an API key included in the request headers. Additionally, implement role-based access control (RBAC) to restrict certain operations (e.g., creating, updating, deleting books) to authorized users only.
+## Build the Docker Image
 
-## Task 3: Dockerization
-Create a Dockerfile for the API service to containerize it. Ensure that the Docker image is optimized for production use and follows best practices. Include instructions in a README.md file on how to build and run the Docker container.
+To build the Docker image, run the following command in the project root directory where the Dockerfile is located:
 
-## Task 4: Unit Testing
-Write comprehensive unit tests to cover the functionality of the API service and middleware components. Aim for high test coverage and ensure that both positive and negative test cases are considered.
+```sh
+docker build -t book-management-app:latest .
+```
 
-## Task 5: Documentation
-Provide clear and concise documentation for your code, including inline comments and a README.md file. Explain how to build, run, and test the API service and any other relevant information.
+## Running the Docker Container
+```sh
+docker run -d -p 1323:1323 --name book-management-app-containe -e PORT=1323 -e DATABASE_DSN="username:password@tcp(127.0.0.1:3306)/database_name?charset=utf8mb4&parseTime=True&loc=Local" --network=host book-management-app:latest
+```
+(192.168.0.4:6033
+### Notes
 
-## Submission Guidelines:
-- Fork this repository and work on your solutions there.
-- Ensure your code is well-structured, follows best practices, and is adequately documented.
-- Submit your solutions via email, including a link to your repository.
+1. Make sure to replace placeholder values in the `.env` file or the Docker run command with your actual database credentials.
+2. The `--network=host` option in the Docker run command allows the container to use the host's network stack, which is useful for local development. In a production environment, it's recommended to configure proper networking and security settings.
 
-## Deadline
-Please submit your solution within seven days of receiving this test.
+By following these instructions, you can containerize and run your Go API service efficiently using Docker.
 
-Feel free to reach out if you have any questions or need clarification on any of the tasks. We're looking forward to reviewing your solutions!
+
+### API Reference
+
+For detailed API reference, please refer to the [OpenAPI Specification](./openapi.yaml).

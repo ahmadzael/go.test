@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"go.test/config"
@@ -12,9 +13,11 @@ import (
 	"go.test/model"
 	"go.test/repository"
 	"go.test/usecase"
+	"go.test/usecase/mocks"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -45,7 +48,7 @@ func (suite *BookHandlerTestSuite) TestCreateBook() {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	c := suite.Echo.NewContext(req, rec)
-	c.Set("role", "admin")
+	c.Set("role", "user")
 
 	err := middleware.JWTMiddleware(suite.BookHandler.CreateBook)(c)
 	assert.NoError(suite.T(), err)
@@ -66,6 +69,91 @@ func (suite *BookHandlerTestSuite) TestGetBooks() {
 	err := middleware.JWTMiddleware(suite.BookHandler.GetBooks)(c)
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), http.StatusOK, rec.Code)
+}
+func TestUpdateBook(t *testing.T) {
+	e := echo.New()
+	bookUsecase := new(mocks.BookUsecase)
+	h := NewBookHandler(bookUsecase)
+
+	book := &model.Book{
+		ID:            1,
+		Title:         "Updated Sample Book",
+		Author:        "Updated Sample Author",
+		ISBN:          "0987654321",
+		PublishedDate: "2023-01-01",
+	}
+
+	jsonBook, _ := json.Marshal(book)
+
+	req := httptest.NewRequest(http.MethodPut, "/restricted/books/1", bytes.NewReader(jsonBook))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(strconv.Itoa(int(book.ID)))
+	c.Set("role", "supervisor")
+
+	bookUsecase.On("UpdateBook", mock.Anything).Return(nil).Once()
+
+	if assert.NoError(t, h.UpdateBook(c)) {
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var updatedBook model.Book
+		json.Unmarshal(rec.Body.Bytes(), &updatedBook)
+		assert.Equal(t, book.Title, updatedBook.Title)
+	}
+
+	// Test with insufficient role
+	c.Set("role", "user")
+	rec = httptest.NewRecorder()
+	c.Response().Writer = rec
+
+	if assert.Error(t, h.UpdateBook(c)) {
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	}
+
+	// Test with higher role
+	c.Set("role", "manager")
+	rec = httptest.NewRecorder()
+	c.Response().Writer = rec
+
+	if assert.NoError(t, h.UpdateBook(c)) {
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var updatedBook model.Book
+		json.Unmarshal(rec.Body.Bytes(), &updatedBook)
+		assert.Equal(t, book.Title, updatedBook.Title)
+	}
+
+	bookUsecase.AssertExpectations(t)
+}
+
+func TestDeleteBook(t *testing.T) {
+	e := echo.New()
+	bookUsecase := new(mocks.BookUsecase)
+	h := NewBookHandler(bookUsecase)
+
+	req := httptest.NewRequest(http.MethodDelete, "/restricted/books/1", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("1")
+	c.Set("role", "manager")
+
+	bookUsecase.On("DeleteBook", uint(1)).Return(nil).Once()
+
+	if assert.NoError(t, h.DeleteBook(c)) {
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	}
+
+	// Test with insufficient role
+	c.Set("role", "supervisor")
+	rec = httptest.NewRecorder()
+	c.Response().Writer = rec
+
+	if assert.Error(t, h.DeleteBook(c)) {
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	}
+
+	bookUsecase.AssertExpectations(t)
 }
 
 func TestBookHandlerTestSuite(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"go.test/middleware"
 	"go.test/model"
 	"go.test/usecase"
 
@@ -59,6 +60,10 @@ func (h *UserHandler) GetUser(c echo.Context) error {
 }
 
 func (h *UserHandler) UpdateUser(c echo.Context) error {
+	return middleware.RoleBasedAccess(h.updateUserHandler, "supervisor")(c)
+}
+
+func (h *UserHandler) updateUserHandler(c echo.Context) error {
 	id, _ := strconv.Atoi(c.Param("id"))
 	user := new(model.User)
 	if err := c.Bind(user); err != nil {
@@ -72,6 +77,10 @@ func (h *UserHandler) UpdateUser(c echo.Context) error {
 }
 
 func (h *UserHandler) DeleteUser(c echo.Context) error {
+	return middleware.RoleBasedAccess(h.deleteUserHandler, "manager")(c)
+}
+
+func (h *UserHandler) deleteUserHandler(c echo.Context) error {
 	id, _ := strconv.Atoi(c.Param("id"))
 	if err := h.UserUsecase.DeleteUser(uint(id)); err != nil {
 		return c.JSON(http.StatusInternalServerError, err)

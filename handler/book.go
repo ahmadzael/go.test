@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"go.test/middleware"
 	"go.test/model"
 	"go.test/usecase"
 
@@ -47,6 +48,10 @@ func (h *BookHandler) CreateBook(c echo.Context) error {
 }
 
 func (h *BookHandler) UpdateBook(c echo.Context) error {
+	return middleware.RoleBasedAccess(h.updateBookHandler, "supervisor")(c)
+}
+
+func (h *BookHandler) updateBookHandler(c echo.Context) error {
 	id, _ := strconv.Atoi(c.Param("id"))
 	book := new(model.Book)
 	if err := c.Bind(book); err != nil {
@@ -60,6 +65,10 @@ func (h *BookHandler) UpdateBook(c echo.Context) error {
 }
 
 func (h *BookHandler) DeleteBook(c echo.Context) error {
+	return middleware.RoleBasedAccess(h.deleteBookHandler, "manager")(c)
+}
+
+func (h *BookHandler) deleteBookHandler(c echo.Context) error {
 	id, _ := strconv.Atoi(c.Param("id"))
 	if err := h.BookUsecase.DeleteBook(uint(id)); err != nil {
 		return c.JSON(http.StatusInternalServerError, err)

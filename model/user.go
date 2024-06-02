@@ -5,5 +5,4 @@ type User struct {
 	Username string `json:"username" gorm:"unique"`
 	Password string `json:"-"`
 	Role     string `json:"role"`
-	Token    string `josn:"token"`
 }

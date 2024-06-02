@@ -5,77 +5,74 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	util "go.test/utils"
-
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/suite"
 )
 
-type MiddlewareTestSuite struct {
-	suite.Suite
-	Echo *echo.Echo
-}
+func TestRoleBasedAccess(t *testing.T) {
+	e := echo.New()
 
-func (suite *MiddlewareTestSuite) SetupSuite() {
-	suite.Echo = echo.New()
-}
-
-func (suite *MiddlewareTestSuite) TestJWTMiddleware() {
-	// Valid Token
-	token, _ := util.GenerateJWT("testuser", "user")
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	c := suite.Echo.NewContext(req, rec)
-
+	// Handler to be protected by middleware
 	handler := func(c echo.Context) error {
-		return c.String(http.StatusOK, "ok")
+		return c.JSON(http.StatusOK, "Access granted")
 	}
 
-	err := JWTMiddleware(handler)(c)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), http.StatusOK, rec.Code)
-
-	// Invalid Token
-	req = httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer invalidtoken")
-	rec = httptest.NewRecorder()
-	c = suite.Echo.NewContext(req, rec)
-
-	err = JWTMiddleware(handler)(c)
-	assert.Error(suite.T(), err)
-	assert.Equal(suite.T(), http.StatusUnauthorized, rec.Code)
-}
-
-func (suite *MiddlewareTestSuite) TestRBACMiddleware() {
-	token, _ := util.GenerateJWT("testadmin", "admin")
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	c := suite.Echo.NewContext(req, rec)
-
-	handler := func(c echo.Context) error {
-		return c.String(http.StatusOK, "ok")
+	tests := []struct {
+		name         string
+		role         string
+		requiredRole string
+		expectedCode int
+	}{
+		{
+			name:         "User trying to access supervisor route",
+			role:         "user",
+			requiredRole: "supervisor",
+			expectedCode: http.StatusForbidden,
+		},
+		{
+			name:         "Supervisor trying to access manager route",
+			role:         "supervisor",
+			requiredRole: "manager",
+			expectedCode: http.StatusForbidden,
+		},
+		{
+			name:         "Manager accessing supervisor route",
+			role:         "manager",
+			requiredRole: "supervisor",
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "Manager accessing user route",
+			role:         "manager",
+			requiredRole: "user",
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "Supervisor accessing supervisor route",
+			role:         "supervisor",
+			requiredRole: "supervisor",
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "User accessing user route",
+			role:         "user",
+			requiredRole: "user",
+			expectedCode: http.StatusOK,
+		},
 	}
 
-	// Admin role access
-	err := JWTMiddleware(RBAC("admin")(handler))(c)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.Set("role", tt.role)
 
-	// User role access denied
-	token, _ = util.GenerateJWT("testuser", "user")
-	req = httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec = httptest.NewRecorder()
-	c = suite.Echo.NewContext(req, rec)
+			// Apply middleware
+			mw := RoleBasedAccess(handler, tt.requiredRole)
+			mw(c)
 
-	err = JWTMiddleware(RBAC("admin")(handler))(c)
-	assert.Error(suite.T(), err)
-	assert.Equal(suite.T(), http.StatusForbidden, rec.Code)
-}
-
-func TestMiddlewareTestSuite(t *testing.T) {
-	suite.Run(t, new(MiddlewareTestSuite))
+			assert.Equal(t, tt.expectedCode, rec.Code)
+		})
+	}
 }

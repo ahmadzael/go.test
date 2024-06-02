@@ -1,36 +1,36 @@
-# Build stage
-FROM golang:1.22-alpine AS builder
+# Stage 1: Build the Go binary
+FROM golang:1.22-alpine AS build
 
-# Set the Current Working Directory inside the container
+# Set environment variables for Go
+ENV GO111MODULE=on
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy go.mod and go.sum files
+# Copy the Go modules manifest and download dependencies
 COPY go.mod go.sum ./
-
-# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
 RUN go mod download
 
-# Copy the source from the current directory to the Working Directory inside the container
+# Copy the source code
 COPY . .
 
-# Build the Go app
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o main cmd/main.go
+# Build the Go binary
+RUN go build -o main .
 
-# Run stage
+# Stage 2: Create the production image
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
-
+# Set the working directory inside the container
 WORKDIR /root/
 
-# Copy the Pre-built binary file from the previous stage
-COPY --from=builder /app/main .
+# Copy the Go binary from the build stage
+COPY --from=build /app/main .
 
-# Copy config files if any
-COPY config ./config
+# Expose the application port
+EXPOSE 8080
 
-# Expose port 1323 to the outside world
-EXPOSE 1323
-
-# Command to run the executable
+# Command to run the Go binary
 CMD ["./main"]
