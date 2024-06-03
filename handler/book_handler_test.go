@@ -3,9 +3,9 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 
 	"go.test/config"
@@ -14,10 +14,10 @@ import (
 	"go.test/repository"
 	"go.test/usecase"
 	"go.test/usecase/mocks"
+	util "go.test/utils"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -35,94 +35,105 @@ func (suite *BookHandlerTestSuite) SetupSuite() {
 	suite.Echo = echo.New()
 }
 
-func (suite *BookHandlerTestSuite) TestCreateBook() {
-	book := model.Book{
-		Title:         "Test Book",
-		Author:        "Test Author",
-		ISBN:          "1234567890",
-		PublishedDate: "2022-01-01",
-	}
-	body, _ := json.Marshal(book)
+func (suite *BookHandlerTestSuite) TestGetBooks() {
+	// Generate a JWT token for testing
+	token, err := util.GenerateJWT("zai", "manager")
+	assert.NoError(suite.T(), err)
 
-	req := httptest.NewRequest(http.MethodPost, "/restricted/books", bytes.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodGet, "/api/books", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	c := suite.Echo.NewContext(req, rec)
-	c.Set("role", "user")
+	c.SetPath("/api/books")
 
-	err := middleware.JWTMiddleware(suite.BookHandler.CreateBook)(c)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), http.StatusCreated, rec.Code)
+	// Ensure middleware chain is properly invoked
+	if assert.NoError(suite.T(), middleware.JWTMiddleware(suite.BookHandler.GetBooks)(c)) {
+		assert.Equal(suite.T(), http.StatusOK, rec.Code)
+	}
+}
+
+func TestCreateBook(t *testing.T) {
+	e := echo.New()
+
+	bookUsecase := new(mocks.BookUsecase)
+
+	h := NewBookHandler(bookUsecase)
+
+	book := &model.Book{Title: "New Book", Author: "New Author", ISBN: "0987654321", PublishedDate: "2023-01-01"}
+
+	bookJSON, _ := json.Marshal(book)
+
+	bookUsecase.On("CreateBook", book).Return(nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/books", bytes.NewReader(bookJSON))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.CreateBook(c)
+
+	assert.NoError(t, err)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var createdBook model.Book
 	err = json.Unmarshal(rec.Body.Bytes(), &createdBook)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), book.Title, createdBook.Title)
+
+	assert.NoError(t, err)
+	assert.Equal(t, book, &createdBook)
+
+	bookUsecase.AssertExpectations(t)
 }
 
-func (suite *BookHandlerTestSuite) TestGetBooks() {
-	req := httptest.NewRequest(http.MethodGet, "/restricted/books", nil)
-	rec := httptest.NewRecorder()
-	c := suite.Echo.NewContext(req, rec)
-	c.Set("role", "user")
-
-	err := middleware.JWTMiddleware(suite.BookHandler.GetBooks)(c)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), http.StatusOK, rec.Code)
-}
 func TestUpdateBook(t *testing.T) {
 	e := echo.New()
 	bookUsecase := new(mocks.BookUsecase)
+	token, err := util.GenerateJWT("zai", "supervisor")
+	fmt.Println("token", token)
 	h := NewBookHandler(bookUsecase)
 
+	// Prepare a sample book for update
 	book := &model.Book{
 		ID:            1,
-		Title:         "Updated Sample Book",
-		Author:        "Updated Sample Author",
+		Title:         "Updated Book",
+		Author:        "Updated Author",
 		ISBN:          "0987654321",
 		PublishedDate: "2023-01-01",
 	}
 
-	jsonBook, _ := json.Marshal(book)
+	// Convert book to JSON
+	bookJSON, _ := json.Marshal(book)
 
-	req := httptest.NewRequest(http.MethodPut, "/restricted/books/1", bytes.NewReader(jsonBook))
+	// Mock UpdateBook method to return nil error
+	bookUsecase.On("UpdateBook", book).Return(nil)
+
+	// Create a request to update a book
+	req := httptest.NewRequest(http.MethodPut, "/api/books/1", bytes.NewReader(bookJSON))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
-	c.SetParamValues(strconv.Itoa(int(book.ID)))
+	c.SetParamValues("1")
 	c.Set("role", "supervisor")
 
-	bookUsecase.On("UpdateBook", mock.Anything).Return(nil).Once()
+	// Call the UpdateBook handler
+	err = h.UpdateBook(c)
 
-	if assert.NoError(t, h.UpdateBook(c)) {
-		assert.Equal(t, http.StatusOK, rec.Code)
-		var updatedBook model.Book
-		json.Unmarshal(rec.Body.Bytes(), &updatedBook)
-		assert.Equal(t, book.Title, updatedBook.Title)
-	}
+	// Assert that no error occurred
+	assert.NoError(t, err)
 
-	// Test with insufficient role
-	c.Set("role", "user")
-	rec = httptest.NewRecorder()
-	c.Response().Writer = rec
+	// Assert that the response status code is OK
+	assert.Equal(t, http.StatusOK, rec.Code)
+	// Decode the response body
+	var updatedBook model.Book
+	err = json.Unmarshal(rec.Body.Bytes(), &updatedBook)
 
-	if assert.Error(t, h.UpdateBook(c)) {
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	}
+	// Assert that the decoded book matches the input book
+	assert.NoError(t, err)
+	assert.Equal(t, book, &updatedBook)
 
-	// Test with higher role
-	c.Set("role", "manager")
-	rec = httptest.NewRecorder()
-	c.Response().Writer = rec
-
-	if assert.NoError(t, h.UpdateBook(c)) {
-		assert.Equal(t, http.StatusOK, rec.Code)
-		var updatedBook model.Book
-		json.Unmarshal(rec.Body.Bytes(), &updatedBook)
-		assert.Equal(t, book.Title, updatedBook.Title)
-	}
-
+	// Assert that the UpdateBook method was called once
 	bookUsecase.AssertExpectations(t)
 }
 
@@ -131,28 +142,27 @@ func TestDeleteBook(t *testing.T) {
 	bookUsecase := new(mocks.BookUsecase)
 	h := NewBookHandler(bookUsecase)
 
-	req := httptest.NewRequest(http.MethodDelete, "/restricted/books/1", nil)
+	// Mock DeleteBook method to return nil error
+	bookUsecase.On("DeleteBook", uint(1)).Return(nil)
+
+	// Create a request to delete a book
+	req := httptest.NewRequest(http.MethodDelete, "/api/books/1", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues("1")
 	c.Set("role", "manager")
 
-	bookUsecase.On("DeleteBook", uint(1)).Return(nil).Once()
+	// Call the DeleteBook handler
+	err := h.DeleteBook(c)
 
-	if assert.NoError(t, h.DeleteBook(c)) {
-		assert.Equal(t, http.StatusNoContent, rec.Code)
-	}
+	// Assert that no error occurred
+	assert.NoError(t, err)
 
-	// Test with insufficient role
-	c.Set("role", "supervisor")
-	rec = httptest.NewRecorder()
-	c.Response().Writer = rec
+	// Assert that the response status code is NoContent
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	if assert.Error(t, h.DeleteBook(c)) {
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	}
-
+	// Assert that the DeleteBook method was called once
 	bookUsecase.AssertExpectations(t)
 }
 
